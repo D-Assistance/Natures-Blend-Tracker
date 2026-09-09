@@ -202,7 +202,7 @@ def main():
 
     messages = []
 
-     if price_per_bag <= TARGET_PRICE:
+    if price_per_bag <= TARGET_PRICE:
         messages.append(
             f"🎉 Dr. Marty Nature's Blend is ${price_per_bag:.2f}/bag "
             f"for 3 bags — at or below your ${TARGET_PRICE:.2f} target!\n"
