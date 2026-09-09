@@ -1,79 +1,220 @@
+import os
+import re
+import json
+from datetime import datetime, timezone
+
 import requests
 from bs4 import BeautifulSoup
-import re
+
 
 URL = "https://www.naturesblendbydrmarty.com/"
+HISTORY_FILE = "price_history.json"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+MAX_BAGS = 3
+TARGET_PRICE = 25.00
+
+
+def fetch_page():
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/150.0.0.0 Safari/537.36"
+        )
+    }
+
+    response = requests.get(URL, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.text
+
+
+def find_three_bag_offers(soup):
+    """
+    Find the short price elements for the 3-bag offers.
+
+    The page currently contains:
+      3 Bags Save $94 $85.35   <- one-time purchase
+      3 Bags Save $91 $88.35   <- subscription
+      3 Bags Save $9 $170.85   <- false association from page HTML
+
+    We keep the first two unique matches and ignore the false association.
+    """
+
+    pattern = re.compile(
+        r"^\s*3\s+Bags\s+Save\s+\$[\d,]+\.\d{2}\s+\$([\d,]+\.\d{2})\s*$",
+        re.IGNORECASE,
+    )
+
+    matches = []
+
+    for element in soup.find_all(["div", "span", "p", "label", "li"]):
+        text = " ".join(element.get_text(" ", strip=True).split())
+
+        match = pattern.match(text)
+
+        if match:
+            price = float(match.group(1).replace(",", ""))
+
+            if price not in [item["price"] for item in matches]:
+                matches.append({
+                    "text": text,
+                    "price": price,
+                })
+
+    return matches
+
+
+def check_availability(soup):
+    page_text = soup.get_text(" ", strip=True).lower()
+
+    out_of_stock_phrases = [
+        "sorry, we're currently out of stock",
+        "currently out of stock",
+        "out of stock",
+    ]
+
+    for phrase in out_of_stock_phrases:
+        if phrase in page_text:
+            return False
+
+    return True
+
+
+def load_history():
+    if not os.path.exists(HISTORY_FILE):
+        return []
+
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(history):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as file:
+        json.dump(history, file, indent=2)
+
+
+def send_discord(message):
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+
+    if not webhook_url:
+        print("Discord webhook secret not found.")
+        return
+
+    response = requests.post(
+        webhook_url,
+        json={"content": message},
+        timeout=30,
+    )
+
+    response.raise_for_status()
+    print("Discord notification sent.")
 
 
 def main():
     print("==========================================")
-    print("Nature's Blend Offer Diagnostic")
+    print("Dr. Marty Nature's Blend Price Tracker")
     print("==========================================")
 
-    response = requests.get(
-        URL,
-        headers=HEADERS,
-        timeout=20
-    )
+    html = fetch_page()
+    soup = BeautifulSoup(html, "html.parser")
 
-    print(f"Website response status: {response.status_code}")
+    offers = find_three_bag_offers(soup)
 
-    if response.status_code != 200:
-        print("The website blocked the tracker.")
+    if not offers:
+        print("ERROR: Could not find the 3-bag price.")
+        print("No price will be recorded.")
         return
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    # The first unique 3-bag price is the one-time purchase.
+    one_time_price = offers[0]["price"]
+    price_per_bag = one_time_price / MAX_BAGS
 
-    print()
-    print("Searching page for text containing '3 Bags'...")
-    print()
+    # The second unique 3-bag price is the subscription price.
+    subscription_price = None
+    if len(offers) >= 2:
+        subscription_price = offers[1]["price"]
 
-    found = 0
+    available = check_availability(soup)
 
-    for element in soup.find_all(["div", "span", "p", "label", "li"]):
-        text = element.get_text(" ", strip=True)
+    print(f"3-bag one-time price: ${one_time_price:.2f}")
+    print(f"Price per bag: ${price_per_bag:.2f}")
 
-        if re.search(r"3\s+Bags", text, re.IGNORECASE):
+    if subscription_price is not None:
+        print(f"3-bag subscription price: ${subscription_price:.2f}")
+        print(
+            f"Subscription price per bag: "
+            f"${subscription_price / MAX_BAGS:.2f}"
+        )
 
-            # Only show reasonably small pieces of text.
-            if len(text) <= 300:
+    print(f"Currently available: {available}")
 
-                print("------------------------------------------")
-                print(text)
+    history = load_history()
 
-                # Also show any dollar amounts in this exact piece.
-                prices = re.findall(
-                    r"\$\s*[\d,]+\.\d{2}",
-                    text
-                )
+    # Only available, one-time offers count as qualifying prices.
+    qualifying_records = [
+        record
+        for record in history
+        if record.get("available") is True
+        and record.get("offer_type") == "one-time"
+    ]
 
-                if prices:
-                    print("Prices in this piece:")
-                    print(", ".join(prices))
+    previous_low = None
 
-                found += 1
+    if qualifying_records:
+        previous_low = min(
+            record["price_per_bag"]
+            for record in qualifying_records
+        )
 
-                # Stop after the first 15 useful matches.
-                if found >= 15:
-                    break
+    timestamp = datetime.now(timezone.utc).isoformat()
 
-    print()
-    print("==========================================")
-    print(f"Diagnostic matches shown: {found}")
-    print("==========================================")
+    record = {
+        "timestamp": timestamp,
+        "date": timestamp[:10],
+        "source": URL,
+        "offer_type": "one-time",
+        "bags": MAX_BAGS,
+        "package_price": one_time_price,
+        "price_per_bag": round(price_per_bag, 2),
+        "available": available,
+    }
+
+    history.append(record)
+    save_history(history)
+
+    print("------------------------------------------")
+    print("This run has been recorded in price_history.json")
+
+    # Do not send a deal alert when the product is unavailable.
+    if not available:
+        print("No alert: product is currently out of stock.")
+        return
+
+    messages = []
+
+    if price_per_bag <= TARGET_PRICE:
+        messages.append(
+            f"🎉 Dr. Marty Nature's Blend is ${price_per_bag:.2f}/bag "
+            f"for 3 bags — at or below your ${TARGET_PRICE:.2f} target!"
+        )
+
+    if previous_low is None or price_per_bag < previous_low:
+        messages.append(
+            f"🏆 NEW ALL-TIME LOW: Dr. Marty Nature's Blend is now "
+            f"${price_per_bag:.2f}/bag for 3 bags "
+            f"(${one_time_price:.2f} total)."
+        )
+
+    if messages:
+        message = "\n".join(messages)
+        send_discord(message)
+    else:
+        print("No Discord alert needed.")
+
+    print("Tracker completed successfully.")
 
 
 if __name__ == "__main__":
