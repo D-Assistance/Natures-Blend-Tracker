@@ -2,19 +2,27 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
+from datetime import datetime
 
-# --- CONFIGURATION ---
+# ============================================================
+# NATURE'S BLEND PRICE TRACKER
+# ============================================================
 
-# Dr. Marty's Nature's Blend product page
-URL = "https://drmartypets.com/product/natures-blend"
+# We are only interested in offers of 1, 2, or 3 bags.
+MAX_BAGS = 3
 
-# Discord webhook is stored securely as a GitHub Secret
+# Your personal sale benchmark.
+TARGET_PRICE = 25.00
+
+# Official Nature's Blend offer page.
+OFFER_URL = "https://www.naturesblendbydrmarty.com/"
+
+# Discord webhook is stored securely in GitHub.
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# Alert when the price is at or below this amount
-TARGET_PRICE = 34.95
+# File where we will eventually keep the price history.
+HISTORY_FILE = "price_history.csv"
 
-# Make the request look like it is coming from a normal web browser
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -25,84 +33,85 @@ HEADERS = {
 }
 
 
-def check_price():
+def get_page():
+    """Download the Nature's Blend offer page."""
     try:
-        response = requests.get(URL, headers=HEADERS, timeout=15)
+        response = requests.get(
+            OFFER_URL,
+            headers=HEADERS,
+            timeout=20
+        )
+
+        print(f"Website response status: {response.status_code}")
 
         if response.status_code != 200:
-            print(f"Error fetching page: Status code {response.status_code}")
-            return
+            print("The website did not allow the tracker to read the page.")
+            return None
 
-        soup = BeautifulSoup(response.content, "html.parser")
-
-        # Look for common website price formats
-        price_element = (
-            soup.find("span", {"class": "amount"})
-            or soup.find("meta", {"property": "og:price:amount"})
-        )
-
-        if price_element:
-            if price_element.name == "meta":
-                price_text = price_element.get("content")
-            else:
-                price_text = price_element.text
-
-            cleaned_price = "".join(
-                c for c in price_text if c.isdigit() or c == "."
-            )
-
-            current_price = float(cleaned_price)
-
-            print(
-                f"Current price for Nature's Blend found: "
-                f"${current_price:.2f}"
-            )
-
-            if current_price <= TARGET_PRICE:
-                send_alert(current_price)
-
-        else:
-            print(
-                "Could not isolate the price element on the page. "
-                "Website layout may have changed."
-            )
+        return response.text
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Error connecting to website: {e}")
+        return None
 
 
-def send_alert(price):
-    if not DISCORD_WEBHOOK_URL:
-        print("Discord webhook URL is missing.")
+def find_prices(page):
+    """
+    Look through the page for dollar amounts.
+
+    This first test deliberately reports what prices are present
+    rather than making assumptions about which one is the sale price.
+    """
+    soup = BeautifulSoup(page, "html.parser")
+
+    text = soup.get_text(" ", strip=True)
+
+    import re
+
+    prices = re.findall(r"\$\s*(\d+(?:\.\d{2})?)", text)
+
+    unique_prices = []
+
+    for price in prices:
+        value = float(price)
+
+        if value not in unique_prices:
+            unique_prices.append(value)
+
+    return unique_prices
+
+
+def main():
+    print("==========================================")
+    print("Nature's Blend Price Tracker")
+    print("==========================================")
+    print(f"Maximum qualifying purchase: {MAX_BAGS} bags")
+    print(f"Sale benchmark: ${TARGET_PRICE:.2f} per bag")
+    print()
+
+    page = get_page()
+
+    if page is None:
+        print("Price check could not be completed.")
         return
 
-    payload = {
-        "username": "Nature's Blend Price Tracker",
-        "content": (
-            f"🚨 **SALE ALERT!** 🚨\n"
-            f"Dr. Marty's Nature's Blend is showing a price of "
-            f"**${price:.2f}**!\n"
-            f"Check it here: {URL}"
-        ),
-    }
+    prices = find_prices(page)
 
-    headers = {"Content-Type": "application/json"}
+    if not prices:
+        print("No dollar prices were found on the page.")
+        return
 
-    response = requests.post(
-        DISCORD_WEBHOOK_URL,
-        data=json.dumps(payload),
-        headers=headers,
-        timeout=15,
-    )
+    print("Dollar amounts found on the page:")
 
-    if response.status_code == 204:
-        print("Alert successfully sent to Discord!")
-    else:
-        print(
-            f"Failed to send Discord alert: "
-            f"{response.status_code}"
-        )
+    for price in prices:
+        print(f"  ${price:.2f}")
+
+    print()
+    print("The tracker successfully reached the offer page.")
+    print("Next we will identify which prices belong to 1-, 2-,")
+    print("and 3-bag offers so we do not mistake unrelated prices")
+    print("for the actual Nature's Blend price.")
 
 
 if __name__ == "__main__":
-    check_price()
+    main()
