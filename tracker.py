@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 
 URL = "https://www.naturesblendbydrmarty.com/"
+PURCHASE_URL = "https://www.naturesblendbydrmarty.com/"
 HISTORY_FILE = "price_history.json"
 
 MAX_BAGS = 3
@@ -202,16 +203,18 @@ def main():
     messages = []
 
     if price_per_bag <= TARGET_PRICE:
-        messages.append(
-            f"🎉 Dr. Marty Nature's Blend is ${price_per_bag:.2f}/bag "
-            f"for 3 bags — at or below your ${TARGET_PRICE:.2f} target!"
+    messages.append(
+        f"🎉 Dr. Marty Nature's Blend is ${price_per_bag:.2f}/bag "
+        f"for 3 bags — at or below your ${TARGET_PRICE:.2f} target!\n"
+        f"🛒 Buy/check the offer: {PURCHASE_URL}"
         )
 
-    if previous_low is None or price_per_bag < previous_low:
-        messages.append(
-            f"🏆 NEW ALL-TIME LOW: Dr. Marty Nature's Blend is now "
-            f"${price_per_bag:.2f}/bag for 3 bags "
-            f"(${one_time_price:.2f} total)."
+if previous_low is None or price_per_bag < previous_low:
+    messages.append(
+        f"🏆 NEW ALL-TIME LOW: Dr. Marty Nature's Blend is now "
+        f"${price_per_bag:.2f}/bag for 3 bags "
+        f"(${one_time_price:.2f} total).\n"
+        f"🛒 Buy/check the offer: {PURCHASE_URL}"
         )
 
     if messages:
