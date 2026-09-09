@@ -27,21 +27,21 @@ def fetch_page():
     response.raise_for_status()
     return response.text
 
-
 def find_three_bag_offers(soup):
     """
-    Find the short price elements for the 3-bag offers.
+    Find the 3-bag prices from the official Nature's Blend page.
 
-    The page currently contains:
-      3 Bags Save $94 $85.35   <- one-time purchase
-      3 Bags Save $91 $88.35   <- subscription
-      3 Bags Save $9 $170.85   <- false association from page HTML
+    The page currently contains several references to "3 Bags."
+    We use the first two unique, complete 3-bag price entries:
+      1. One-time purchase
+      2. Subscription
 
-    We keep the first two unique matches and ignore the false association.
+    Other matches are ignored because the page's HTML can associate
+    a savings amount with the wrong package.
     """
 
     pattern = re.compile(
-        r"^\s*3\s+Bags\s+Save\s+\$[\d,]+\.\d{2}\s+\$([\d,]+\.\d{2})\s*$",
+        r"3\s+Bags\s+Save\s+\$[\d,]+(?:\.\d{2})?\s+\$([\d,]+(?:\.\d{2})?)",
         re.IGNORECASE,
     )
 
@@ -50,7 +50,7 @@ def find_three_bag_offers(soup):
     for element in soup.find_all(["div", "span", "p", "label", "li"]):
         text = " ".join(element.get_text(" ", strip=True).split())
 
-        match = pattern.match(text)
+        match = pattern.search(text)
 
         if match:
             price = float(match.group(1).replace(",", ""))
@@ -61,7 +61,13 @@ def find_three_bag_offers(soup):
                     "price": price,
                 })
 
-    return matches
+    # We need at least one genuine 3-bag price.
+    if not matches:
+        return []
+
+    # The first unique match is the one-time price.
+    # The second unique match is the subscription price.
+    return matches[:2]
 
 
 def check_availability(soup):
