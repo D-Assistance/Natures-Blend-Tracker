@@ -2,7 +2,9 @@ import os
 import re
 import json
 from datetime import datetime, timezone
-
+import smtplib
+from email.message import EmailMessage
+from email.utils import formataddr
 import requests
 from bs4 import BeautifulSoup
 
@@ -120,6 +122,27 @@ def send_discord(message):
     print("Discord notification sent.")
 
 
+def send_email(subject, message):
+    gmail_username = os.environ.get("GMAIL_USERNAME")
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD")
+
+    if not gmail_username or not gmail_app_password:
+        print("Email settings are missing.")
+        return
+
+    email = EmailMessage()
+    email["From"] = gmail_username
+    email["To"] = gmail_username
+    email["Subject"] = subject
+    email.set_content(message)
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        smtp.login(gmail_username, gmail_app_password)
+        smtp.send_message(email)
+
+    print("Email alert sent.")
+
+
 def main():
     print("==========================================")
     print("Dr. Marty Nature's Blend Price Tracker")
@@ -220,8 +243,9 @@ def main():
     if messages:
         message = "\n".join(messages)
         send_discord(message)
+        send_email("Dr. Marty Nature's Blend Price Alert", message)
     else:
-        print("No Discord alert needed.")
+        print("No alert needed.")
 
     print("Tracker completed successfully.")
 
