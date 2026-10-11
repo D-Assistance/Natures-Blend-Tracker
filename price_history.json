@@ -338,5 +338,15 @@
     "package_price": 85.35,
     "price_per_bag": 28.45,
     "available": false
+  },
+  {
+    "timestamp": "2026-10-11T17:16:26.081555+00:00",
+    "date": "2026-10-11",
+    "source": "https://www.naturesblendbydrmarty.com/",
+    "offer_type": "one-time",
+    "bags": 3,
+    "package_price": 85.35,
+    "price_per_bag": 28.45,
+    "available": false
   }
 ]
